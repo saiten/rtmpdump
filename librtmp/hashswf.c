@@ -86,13 +86,15 @@ HTTP_get(struct HTTP_ctx *http, const char *url, HTTP_read_callback *cb)
   int rc, i;
   int len_known;
   HTTPResult ret = HTTPRES_OK;
-  struct sockaddr_in sa;
+  struct addrinfo hints, *sa;
+  char portNo[32];
   RTMPSockBuf sb = {0};
 
   http->status = -1;
 
-  memset(&sa, 0, sizeof(struct sockaddr_in));
-  sa.sin_family = AF_INET;
+  memset(&hints, 0, sizeof(struct addrinfo));
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_family = AF_UNSPEC;
 
   /* we only handle http here */
   if (strncasecmp(url, "http", 4))
@@ -127,16 +129,14 @@ HTTP_get(struct HTTP_ctx *http, const char *url, HTTP_read_callback *cb)
       port = atoi(p1);
     }
 
-  sa.sin_addr.s_addr = inet_addr(host);
-  if (sa.sin_addr.s_addr == INADDR_NONE)
+  sprintf(portNo, "%d", port);
+  
+  if(getaddrinfo(host, portNo, &hints, &sa) != 0)
     {
-      struct hostent *hp = gethostbyname(host);
-      if (!hp || !hp->h_addr)
-	return HTTPRES_LOST_CONNECTION;
-      sa.sin_addr = *(struct in_addr *)hp->h_addr;
+      return HTTPRES_LOST_CONNECTION;
     }
-  sa.sin_port = htons(port);
-  sb.sb_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  
+  sb.sb_socket = socket(sa->ai_family, sa->ai_socktype, sa->ai_protocol);
   if (sb.sb_socket == -1)
     return HTTPRES_LOST_CONNECTION;
   i =
@@ -148,7 +148,7 @@ HTTP_get(struct HTTP_ctx *http, const char *url, HTTP_read_callback *cb)
   i += sprintf(sb.sb_buf + i, "\r\n");
 
   if (connect
-      (sb.sb_socket, (struct sockaddr *)&sa, sizeof(struct sockaddr)) < 0)
+      (sb.sb_socket, sa->ai_addr, sa->ai_addrlen) < 0)
     {
       ret = HTTPRES_LOST_CONNECTION;
       goto leave;
